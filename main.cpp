@@ -11,8 +11,8 @@
 
 #define SW_PIN B, 3
 
-#define START 0
-#define STOP 1
+#define START LOW
+#define STOP HIGH
 #define BIT_WIDTH_US 104
 #define BIT_WIDTH_HALF_US (BIT_WIDTH_US/2)
 
