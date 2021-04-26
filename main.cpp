@@ -4,8 +4,6 @@
 
 #include "io_macros.h"
 
-#define BOOT_PHRASE_LENGTH 45
-
 #define TX_PIN B, 1
 #define RX_PIN B, 0
 
@@ -24,7 +22,8 @@ inline bool uart_ready();
 void handle_boot();
 int main();
 
-char BOOT_PHRASE[] = "Use the ^ and v keys to change the selection.";
+const char BOOT_PHRASE[] = "Use the ^ and v keys to change the selection.";
+#define BOOT_PHRASE_LENGTH 45
 
 // Ring buffer to store the incoming data
 char data[BOOT_PHRASE_LENGTH];
