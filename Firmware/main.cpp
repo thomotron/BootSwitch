@@ -4,6 +4,8 @@
 
 #include "io_macros.h"
 
+//#define DEBUG
+
 #define TX_PIN B, 1
 #define RX_PIN B, 0
 
@@ -15,15 +17,16 @@
 #define BIT_WIDTH_HALF_US (BIT_WIDTH_US/2)
 
 void init();
-char recv_byte();
-void send_byte(char byte);
+unsigned char recv_byte();
+void send_byte(unsigned char byte);
 bool compare_phrase();
 inline bool uart_ready();
 void handle_boot();
+void data_append(char byte);
 int main();
 
-const char BOOT_PHRASE[] = "Use the ^ and v keys to change the selection.";
-#define BOOT_PHRASE_LENGTH 45
+const unsigned char BOOT_PHRASE[] = "the ^ and v keys";
+#define BOOT_PHRASE_LENGTH 16
 
 // Ring buffer to store the incoming data
 char data[BOOT_PHRASE_LENGTH];
@@ -49,13 +52,13 @@ void init()
 }
 
 // Receives a byte from UART
-char recv_byte()
+unsigned char recv_byte()
 {
     // Create a buffer to store the incoming byte in
-    char recv_buf = 0;
+    unsigned char recv_buf = 0;
 
     // Receive the next 8 bits
-    for (char i = 0b00000001; i > 0; i <<= 1)
+    for (unsigned char i = 0b00000001; i > 0; i <<= 1)
     {
         if (DigitalRead(RX_PIN)) recv_buf |= i;
         _delay_us(BIT_WIDTH_US);
@@ -69,14 +72,14 @@ char recv_byte()
 }
 
 // Transmits a single byte over UART
-void send_byte(char byte)
+void send_byte(unsigned char byte)
 {
     // Send the start bit
     DigitalWrite(TX_PIN, START);
     _delay_us(BIT_WIDTH_US);
 
     // Send each bit LSB-first
-    for (char i = 0b00000001; i > 0; i <<= 1)
+    for (unsigned char i = 0b00000001; i > 0; i <<= 1)
     {
         DigitalWrite(TX_PIN, (byte & i));
         _delay_us(BIT_WIDTH_US);
@@ -92,12 +95,13 @@ bool compare_phrase()
 {
     // Start at the data index, wrap around, and stop just before it
     int i = data_index;
+    int j = 0;
     do
     {
-        if (BOOT_PHRASE[i] != data[i]) return false;
+        if (BOOT_PHRASE[j] != data[i]) return false;
 
         // Increment iterator and wrap around if necessary
-        i++;
+        i++; j++;
         if (i == BOOT_PHRASE_LENGTH) i = 0;
     } while (i != data_index);
 
@@ -128,6 +132,16 @@ void handle_boot()
     }
 }
 
+void data_append(char byte)
+{
+    // Data index is the current WRITE POSITION which will be overwritten on the next byte.
+    // It is effectively at the head of the buffer, with the tail being one position behind it
+
+    data[data_index] = byte;
+    data_index++;
+    if (data_index == BOOT_PHRASE_LENGTH) data_index = 0;
+}
+
 int main()
 {
     init();
@@ -146,9 +160,7 @@ int main()
         char incoming = recv_byte();
 
         // Append the byte to the data array
-        data[data_index] = incoming;
-        data_index++;
-        if (data_index == BOOT_PHRASE_LENGTH) data_index = 0;
+        data_append(incoming);
 
         // Compare the ring buffer to the boot phrase
         if (compare_phrase())
@@ -156,5 +168,24 @@ int main()
             // Make a boot selection
             handle_boot();
         }
+
+#ifdef DEBUG
+        // Print the current contents of the ring buffer
+        for (int i = 0; i < BOOT_PHRASE_LENGTH; i++)
+        {
+            send_byte(data[i]);
+        }
+        send_byte('\r');
+        send_byte('\n');
+        // and a caret under the position of data_index
+        for (int i = 0; i < data_index; i++)
+        {
+            send_byte(' ');
+        }
+        if (compare_phrase()) send_byte('!');
+        else send_byte('^');
+        send_byte('\r');
+        send_byte('\n');
+#endif
     }
 }
