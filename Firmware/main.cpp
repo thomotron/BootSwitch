@@ -24,9 +24,6 @@ bool compare_phrase();
 inline bool uart_ready();
 void handle_boot();
 void data_append(char byte);
-inline void start_timer();
-inline void stop_timer();
-inline bool timer_running();
 int main();
 
 const unsigned char BOOT_PHRASE[] = "the ^ and v keys";
@@ -36,45 +33,40 @@ const unsigned char BOOT_PHRASE[] = "the ^ and v keys";
 char data[BOOT_PHRASE_LENGTH];
 int data_index = 0;
 
-// Mask used by the timer for assembling an incoming byte
-char timer_incoming_mask = 0b00000001;
+// Whether a byte has been received and is ready to be processed
+volatile bool byte_received = false;
 
-// Incoming byte being built by the timer
-char timer_incoming_byte = 0;
+// The incoming byte
+volatile unsigned char incoming_byte = 0;
 
-// Timer0A interrupt
-ISR(TIM0_COMPA_vect)
+// Pin change interrupt
+ISR(PCINT0_vect)
 {
-    // AND the RX pin against the mask and OR it against the incoming byte buffer
-    timer_incoming_byte |= (DigitalRead(RX_PIN) & timer_incoming_mask);
+    // Only handle the start bit
+    if (!uart_ready()) return;
 
-    // Shift the mask across one
-    timer_incoming_mask <<= 1;
+    // Synchronise to the middle of the bit and jump to the first data bit
+    _delay_us(BIT_WIDTH_HALF_US);
+    _delay_us(BIT_WIDTH_US);
 
-    // Stop the timer if the last bit has been read and the mask has shifted to zero
-    if (timer_incoming_mask == 0)
-    {
-        // Append the byte that's been built and disable the timer
-        data_append(timer_incoming_byte);
-        stop_timer();
+    // Read in the byte
+    incoming_byte = recv_byte();
 
-        // Reset the byte and mask for the next run
-        timer_incoming_byte = 0;
-        timer_incoming_mask = 0b00000001;
-    }
+    // Signal that a byte was received
+    byte_received = true;
 }
 
 // Initialises the microcontroller
 void init()
 {
+    cli();
+
     // Enable pullups
     MCUCR &= ~(1 << PUD);
 
-    // Set up Timer0
-    TCCR0A |= (1 << WGM01); // Count up to OCR0A and reset (CTC mode)
-    //TCCR0B |= (1 << CS01);  // Prescale by /8
-    OCR0A = 104; // Count up to 104 before resetting, ~9615 Hz @ 8MHz clock with /8 prescaler
-    TIMSK |= (1 << OCIE0A); // Enable interrupt on OCR0A
+    // Enable pin change interrupt for the RX pin
+    GIMSK |= (1 << PCIE);
+    PCMSK |= (1 << PCINT0);
 
     // Set pin directons
     PinMode(TX_PIN, OUTPUT);
@@ -87,6 +79,28 @@ void init()
 
     // Clear the data buffer
     memset(data, 0, BOOT_PHRASE_LENGTH);
+
+    sei();
+}
+
+// Receives a byte from UART
+unsigned char recv_byte()
+{
+    // Create a buffer to store the incoming byte in
+    unsigned char recv_buf = 0;
+
+    // Receive the next 8 bits
+    for (unsigned char i = 0b00000001; i > 0; i <<= 1)
+    {
+        if (DigitalRead(RX_PIN)) recv_buf |= i;
+        _delay_us(BIT_WIDTH_US);
+    }
+
+    // Wait for the stop bit to pass by
+    //_delay_us(BIT_WIDTH_US);
+
+    // Return the byte
+    return recv_buf;
 }
 
 // Transmits a single byte over UART
@@ -135,6 +149,9 @@ inline bool uart_ready()
 // Handle the boot response based on switch position
 void handle_boot()
 {
+    // Disable interrupts while transmitting
+    cli();
+
     if (DigitalRead(SW_PIN))
     {
         // Switch on, boot into Windows
@@ -148,9 +165,13 @@ void handle_boot()
         // Switch off, boot into Linux
         send_byte(0x0D); // CR
     }
+
+    // Re-enable interrupts
+    sei();
 }
 
 // Appends a character to the data buffer
+// 14 instructions
 void data_append(char byte)
 {
     // Data index is the current WRITE POSITION which will be overwritten on the next byte.
@@ -161,24 +182,6 @@ void data_append(char byte)
     if (data_index == BOOT_PHRASE_LENGTH) data_index = 0;
 }
 
-// Starts Timer0
-inline void start_timer()
-{
-    TCCR0B |= (1 << CS01);
-}
-
-// Stops Timer0
-inline void stop_timer()
-{
-    TCCR0B &= ~(1 << CS01);
-}
-
-// Returns if Timer0 is running
-inline bool timer_running()
-{
-    return TCCR0B & 0b00000111;
-}
-
 int main()
 {
     init();
@@ -186,15 +189,13 @@ int main()
     while (true)
     {
         // Wait until there is data available
-        while (!uart_ready());
+        while (!byte_received);
 
-        // Synchronise to the middle of the clock cycle and confirm if it is still the start bit
-        _delay_us(BIT_WIDTH_HALF_US);
-        if (!uart_ready()) continue; // Not the start bit, go back
+        // Processing now, clear the flag
+        byte_received = false;
 
-        // Start the timer and wait until it stops itself
-        start_timer();
-        while (timer_running());
+        // Append the byte to the buffer
+        data_append(incoming_byte);
 
         // Compare the ring buffer to the boot phrase
         if (compare_phrase())
@@ -202,6 +203,12 @@ int main()
             // Make a boot selection
             handle_boot();
         }
+
+        /*
+        DigitalWrite(TX_PIN, LOW);
+        nop; nop; nop;
+        DigitalWrite(TX_PIN, HIGH);
+        */
 
 #ifdef DEBUG
         // Print the current contents of the ring buffer
