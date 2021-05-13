@@ -171,14 +171,16 @@ void handle_boot()
 }
 
 // Appends a character to the data buffer
-// 14 instructions
 void data_append(char byte)
 {
     // Data index is the current WRITE POSITION which will be overwritten on the next byte.
     // It is effectively at the head of the buffer, with the tail being one position behind it
 
+    // Append the byte and advance the index
     data[data_index] = byte;
     data_index++;
+
+    // Wrap around if necessary
     if (data_index == BOOT_PHRASE_LENGTH) data_index = 0;
 }
 
@@ -203,12 +205,6 @@ int main()
             // Make a boot selection
             handle_boot();
         }
-
-        /*
-        DigitalWrite(TX_PIN, LOW);
-        nop; nop; nop;
-        DigitalWrite(TX_PIN, HIGH);
-        */
 
 #ifdef DEBUG
         // Print the current contents of the ring buffer
