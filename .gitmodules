@@ -1,0 +1,3 @@
+[submodule "KiCad/libs/xess.pretty"]
+	path = KiCad/libs/xess.pretty
+	url = https://github.com/xesscorp/xess.pretty.git
