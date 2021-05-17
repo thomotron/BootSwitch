@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name xess)(type KiCad)(uri ${KIPRJMOD}/libs/xess.pretty)(options "")(descr ""))
+  (lib (name BootSwitch)(type KiCad)(uri ${KIPRJMOD}/libs/BootSwitch.pretty)(options "")(descr ""))
+)
